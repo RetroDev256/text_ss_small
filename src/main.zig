@@ -25,8 +25,8 @@ const place_y: u32 = term_y - 1;
 // initial location and velocity direction of the banner
 var loc_x: u32 = place_x / 2;
 var loc_y: u32 = place_y / 2;
-var vel_x: bool = true;
-var vel_y: bool = true;
+var vel_x: bool = undefined;
+var vel_y: bool = undefined;
 fn update_loc() void {
     // if a wall *has* been hit, flip the velocities
     if (loc_y == place_y) vel_y = false;
