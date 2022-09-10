@@ -4,14 +4,8 @@ const linux = std.os.linux;
 // Configuration:
 const term_x: u32 = 80; // Columns on the terminal
 const term_y: u32 = 25; // Rows on the terminal
-const banner = [_][]const u8{ // Message
-    "    ____       __",
-    "   / __ \\___  / /__________",
-    "  / /_/ / _ \\/ __/ ___/ __ \\",
-    " / _, _/  __/ /_/ /  / /_/ /",
-    "/_/ |_|\\___/\\__/_/   \\____/",
-};
-const time = .{ // Frame time
+const banner = "Retro";
+const wait_time = linux.timespec{ // Time to pause for each frame
     .tv_sec = 0,
     .tv_nsec = 150000000,
 };
@@ -20,17 +14,15 @@ pub export fn _start() void {
     while (true) { // render & update placement
         update_loc();
         place_banner();
-        _ = linux.nanosleep(&time, null);
+        _ = linux.nanosleep(&wait_time, null);
     }
 }
 
-// dimensions of the banner, and placable coordinates
-const banner_x: u32 = str_arr_width(&banner);
-const banner_y: u32 = banner.len;
-const place_x: u32 = term_x - banner_x;
-const place_y: u32 = term_y - banner_y;
+// banner placing coordinates
+const place_x: u32 = term_x - banner.len;
+const place_y: u32 = term_y - 1;
 
-// location and velocity direction of the banner
+// initial location and velocity direction of the banner
 var loc_x: u32 = place_x / 2;
 var loc_y: u32 = place_y / 2;
 var vel_x: bool = true;
@@ -59,26 +51,11 @@ fn place_banner() void {
             space.* = ' ';
         }
         renderline[term_x] = '\n';
-        // If the row contains the banner, copy banner to the row
-        const ban_line = y -% loc_y;
-        if (ban_line < banner_y) {
+        if (y == loc_y) {
             const dest_ptr = @ptrCast([*]u8, renderline[loc_x..]);
-            const src_ptr = @ptrCast([*]const u8, banner[ban_line]);
-            const line_len = banner[ban_line].len;
-            @memcpy(dest_ptr, src_ptr, line_len);
+            @memcpy(dest_ptr, banner, banner.len);
         }
         // write the row to the terminal
         _ = linux.write(1, &renderline, term_x + 1);
     }
-}
-
-// compile time function for finding the width of the symbol
-fn str_arr_width(in: []const []const u8) u32 {
-    var len: u32 = 0;
-    for (in) |line| {
-        if (line.len > len) {
-            len = line.len;
-        }
-    }
-    return len;
 }
