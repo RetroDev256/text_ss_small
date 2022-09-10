@@ -46,7 +46,7 @@ fn update_loc() void {
     if (loc_y == 0) vel_y = true;
     if (loc_x == 0) vel_x = true;
 }
-s
+
 fn place_banner() void {
     // ANSI terminal code, goto top left.
     _ = linux.write(1, "\x1B[1;1H", 6);
