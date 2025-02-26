@@ -1,78 +1,75 @@
 const std = @import("std");
-const Mode = std.builtin.Mode;
-const Builder = std.build.Builder;
 
-pub fn build(b: *Builder) !void {
-    // config
-    b.setPreferredReleaseMode(Mode.ReleaseSmall);
-    b.is_release = true;
+// -Drelease for release build
+// -Drisky for slighty smaller (but risky) build
+// shrink for slighyl smaller output (safe, repends on sstrip from elf-kickers and wc)
+
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{
+        // x86 ELF is generally smaller, half the bits for pointers
+        // The i386 target is very minimal, and avoids bloated SIMD
         .default_target = .{
-            .cpu_arch = .i386,
-            .os_tag = .freestanding,
+            .cpu_arch = .x86,
+            .cpu_model = .{
+                .explicit = &std.Target.x86.cpu.i386,
+            },
         },
     });
-    const mode = b.standardReleaseOptions();
-
+    const optimize = b.standardOptimizeOption(.{
+        .preferred_optimize_mode = .ReleaseSmall,
+    });
     // build
-    const exe = b.addExecutable("text_ss_small", "src/main.zig");
-    exe.strip = true;
-    exe.headerpad_size = 0;
-    exe.link_gc_sections = true;
-    exe.dead_strip_dylibs = true;
-    exe.disable_sanitize_c = true;
-    exe.disable_stack_probing = true;
-    exe.single_threaded = true;
-    exe.stack_protector = false;
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
-    exe.install();
-
-    const path = try std.fmt.allocPrint(
-        b.allocator,
-        "{s}/{s}",
-        .{ b.exe_dir, exe.out_filename },
-    );
-    defer b.allocator.free(path);
-
-    // strip step
-    const strip_step = b.addSystemCommand(&.{
-        "strip",
-        "-R",
-        ".comment",
-        path,
+    const exe = b.addExecutable(.{
+        .name = "text_ss_small",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
     });
-    b.default_step.dependOn(&strip_step.step);
-
-    // sstrip step
-    const sstrip_step = b.addSystemCommand(&.{
-        "sstrip",
-        "-z",
-        path,
-    });
-    b.default_step.dependOn(&sstrip_step.step);
-
-    // echo binary size
-    const report_step = b.addSystemCommand(&.{
-        "wc",
-        "-c",
-        path,
-    });
-    b.default_step.dependOn(&report_step.step);
-
-    // run
-    const run_step = b.step("run", "Run the app");
-    const run_cmd = exe.run();
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+    b.installArtifact(exe);
+    // optimize
+    if (optimize == .ReleaseFast or optimize == .ReleaseSmall) {
+        // custom linker script
+        const risky = b.option(bool, "risky", "Create binary with PHDR which is RWX") orelse false;
+        exe.setLinkerScript(b.path(if (risky) "linker_risky.ld" else "linker_safe.ld"));
+        // toggle compiler options
+        exe.link_data_sections = true;
+        exe.link_function_sections = true;
+        exe.root_module.strip = true;
+        exe.root_module.single_threaded = true;
+        exe.root_module.omit_frame_pointer = true;
+        exe.bundle_compiler_rt = false;
+        exe.no_builtin = true;
+        // further strip & stuff
+        try furtherOptimize(b, exe); // "shrink" step
     }
+    // run
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| run_cmd.addArgs(args);
+    const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
-
     // tests
+    const exe_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     const test_step = b.step("test", "Run unit tests");
-    const exe_tests = b.addTest("src/main.zig");
-    exe_tests.setTarget(target);
-    exe_tests.setBuildMode(mode);
-    test_step.dependOn(&exe_tests.step);
+    test_step.dependOn(&run_exe_unit_tests.step);
+}
+
+fn furtherOptimize(b: *std.Build, exe: *std.Build.Step.Compile) !void {
+    const file = try std.fmt.allocPrint(b.allocator, "{s}/bin/{s}", .{ b.install_prefix, exe.name });
+    defer b.allocator.free(file);
+    // strip more stuff, plus the trailing zeros
+    const sstrip = b.addSystemCommand(&.{ "sstrip", "-z", file });
+    // count the bytes in the program
+    const report = b.addSystemCommand(&.{ "wc", "-c", file });
+    // set the order the steps are to run
+    sstrip.step.dependOn(b.getInstallStep());
+    report.step.dependOn(&sstrip.step);
+    // ensure the steps will run when triggered
+    const optimize_step = b.step("shrink", "Further size optimizations");
+    optimize_step.dependOn(&report.step);
 }

@@ -1,20 +1,18 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const linux = std.os.linux;
 
 // Configuration:
 const term_x: u32 = 80; // Columns on the terminal
 const term_y: u32 = 25; // Rows on the terminal
 const banner = "Retro";
-const wait_time = linux.timespec{ // Time to pause for each frame
-    .tv_sec = 0,
-    .tv_nsec = 150000000,
-};
+const wait_ns = 150000000;
 
 pub export fn _start() void {
     while (true) { // render & update placement
         update_loc();
         place_banner();
-        _ = linux.nanosleep(&wait_time, null);
+        sleep(wait_ns);
     }
 }
 
@@ -41,21 +39,33 @@ fn update_loc() void {
 
 fn place_banner() void {
     // ANSI terminal code, goto top left.
-    _ = linux.write(1, "\x1B[1;1H", 6);
+    putstr("\x1B[H");
     // loop through the rows on the terminal
     var y: u32 = 0;
     while (y < term_y) : (y += 1) {
         // stack allocate buffer to hold the line
         var renderline: [term_x + 1]u8 = undefined;
-        for (renderline) |*space| {
+        for (&renderline) |*space| {
             space.* = ' ';
         }
         renderline[term_x] = '\n';
         if (y == loc_y) {
-            const dest_ptr = @ptrCast([*]u8, renderline[loc_x..]);
-            @memcpy(dest_ptr, banner, banner.len);
+            const dest_ptr: [*]u8 = @ptrCast(renderline[loc_x..]);
+            @memcpy(dest_ptr[0..banner.len], banner);
         }
         // write the row to the terminal
-        _ = linux.write(1, &renderline, term_x + 1);
+        putstr(&renderline);
     }
+}
+
+// shortcut for sleeping
+fn sleep(comptime ns: isize) void {
+    comptime assert(ns < std.time.ns_per_s);
+    const delay: linux.timespec = .{ .sec = 0, .nsec = ns };
+    _ = linux.nanosleep(&delay, null);
+}
+
+// Print a string at cursor - can fail, but likely won't
+fn putstr(str: []const u8) void {
+    assert(linux.write(1, str.ptr, str.len) == str.len);
 }

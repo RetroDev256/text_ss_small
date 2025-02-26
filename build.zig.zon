@@ -1,0 +1,13 @@
+.{
+    .name = "text_ss_small",
+    .version = "0.0.0",
+    .dependencies = .{},
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "linker_risky.ld",
+        "linker_safe.ld",
+        "src",
+    },
+}
